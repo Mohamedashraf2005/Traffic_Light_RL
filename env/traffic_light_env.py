@@ -75,7 +75,7 @@ class TrafficLightEnv:
         self.max_cars_per_lane = max_cars_per_lane
         self.default_green     = default_green if default_green else dict(DEFAULT_GREEN)
         self.default_yellow    = default_yellow
-
+        self.prev_total_waiting = 0  # for reward calculation
         self.rng = np.random.default_rng(seed)
 
         # Initialised in reset()
@@ -105,6 +105,7 @@ class TrafficLightEnv:
              int(self.rng.integers(1, 8))]
             for _ in range(4)
         ]
+        self.prev_total_waiting = sum(self.cars[d][l] for d in range(4) for l in range(NUM_LANES))
         self.crossed        = [0, 0, 0, 0]
         self.current_step   = 0
         self.current_green  = int(self.rng.integers(0, 4))
@@ -215,12 +216,22 @@ class TrafficLightEnv:
         total_waiting = sum(
             self.cars[d][l] for d in range(4) for l in range(NUM_LANES)
         )
+
+        delta_waiting = total_waiting - self.prev_total_waiting
+        self.prev_total_waiting = total_waiting  
+    
         reward = (
-              float(step_crossed)    # + throughput reward
-            - float(total_waiting)   # − congestion penalty
-            + switch_penalty         # − phase-switch cost
-            + yellow_cost            # − yellow time cost
+              float(step_crossed) * 2.0    # + throughput reward
+            - float(total_waiting) * 0.05    # − congestion penalty
+            + switch_penalty        
+            + float(yellow_cost)
         )
+
+        reward = np.clip(reward, -10, 10)
+
+        # delta_waiting = total_waiting - prev_total_waiting  # prev_total_waiting احفظه في self
+
+
 
         # ── 8. Termination ────────────────────────────────────────────── #
         self.current_step += 1
@@ -297,13 +308,14 @@ class TrafficLightEnv:
     # ------------------------------------------------------------------ #
     #  helpers                                                             #
     # ------------------------------------------------------------------ #
-    def _get_state(self) -> list:
+    def _get_state(self) -> np.ndarray:
         """
         Flat 12-element state vector.
         Order: right_l0, right_l1, right_l2, down_l0 ... up_l2
         Matches vehicles[direction][lane] structure in simulation.py.
         """
-        return [self.cars[d][l] for d in range(4) for l in range(NUM_LANES)]
+        raw = [self.cars[d][l] for d in range(4) for l in range(NUM_LANES)]
+        return np.array(raw, dtype=np.float32) / self.max_cars_per_lane  # normalize to [0, 1]
 
     @property
     def state_size(self) -> int:

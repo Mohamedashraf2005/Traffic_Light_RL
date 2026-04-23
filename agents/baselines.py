@@ -4,26 +4,24 @@ from env.traffic_light_env import TrafficLightEnv, DIRECTION_NUMBERS
 
 
 # ======================================================================= #
-#  1. DISCRETIZED WRAPPER  (for Q-Learning)                                #
+#  1. DISCRETIZED WRAPPER  (for Tabular Q-Learning ONLY)                   #
 # ======================================================================= #
 
-# Thresholds that define the bucket boundaries for car counts.
-# Tune these to match the scale of your intersection.
-BUCKET_THRESHOLDS = [0, 5, 15]   # ≤0 → Empty(0), ≤5 → Light(1), ≤15 → Medium(2), >15 → Heavy(3)
-
+# Thresholds now match the NORMALIZED state [0.0, 1.0]
+# 5/50 = 0.1 (Light), 15/50 = 0.3 (Medium)
+BUCKET_THRESHOLDS = [0.0, 0.1, 0.3]
 BUCKET_LABELS = {0: "Empty", 1: "Light", 2: "Medium", 3: "Heavy"}
 
-
-def _discretize(count: int) -> int:
-    """Map a raw car count to a discrete bucket index."""
+def _discretize(count: float) -> int:
+    """Map a NORMALIZED car count to a discrete bucket index."""
     if count <= BUCKET_THRESHOLDS[0]:
-        return 0   # Empty
+        return 0
     elif count <= BUCKET_THRESHOLDS[1]:
-        return 1   # Light
+        return 1
     elif count <= BUCKET_THRESHOLDS[2]:
-        return 2   # Medium
+        return 2
     else:
-        return 3   # Heavy
+        return 3
 
 
 class DiscretizedWrapper:

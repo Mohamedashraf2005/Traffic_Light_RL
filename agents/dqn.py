@@ -28,13 +28,13 @@ class ReplayBuffer:
         states, actions, rewards, next_states, dones = zip(*batch)
 
         return (
-            torch.FloatTensor(states),
+            torch.FloatTensor(np.stack(states)),       # handle numpy arrays safely
             torch.LongTensor(actions),
             torch.FloatTensor(rewards),
-            torch.FloatTensor(next_states),
+            torch.FloatTensor(np.stack(next_states)),  # handle numpy arrays safely
             torch.FloatTensor(dones)
         )
-
+    
     def __len__(self):
         return len(self.buffer)
 
