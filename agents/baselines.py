@@ -1,8 +1,11 @@
+import sys
+import os
 import random
 import numpy as np
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from env.traffic_light_env import TrafficLightEnv, DIRECTION_NUMBERS
-
-
 # ======================================================================= #
 #  1. DISCRETIZED WRAPPER  (for Tabular Q-Learning ONLY)                   #
 # ======================================================================= #
