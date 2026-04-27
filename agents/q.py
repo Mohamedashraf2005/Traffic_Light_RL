@@ -44,15 +44,14 @@ class QLearningAgent:
         state_key = tuple(state)
         next_state_key = tuple(next_state)
 
-        if next_state_key not in self.q_table:
-            self.q_table[next_state_key] = np.zeros(self.action_size)
 
-        old_value = self.q_table[state_key][action]
-        next_max = np.max(self.q_table[next_state_key])
+        q_current = self.get_qs(state_key)
+        q_next = self.get_qs(next_state_key)
+        next_max = np.max(q_next) 
+
+        new_value = q_current[action] + self.alpha * (reward + self.gamma * next_max - q_current[action])
+        q_current[action] = new_value
         
-        new_value = old_value + self.alpha * (reward + self.gamma * next_max - old_value)
-        self.q_table[state_key][action] = new_value
-
     def train_agent(self, env, episodes=3000):
         wandb.init(project="traffic-light-qlearning", name="initial-run")
 
@@ -62,26 +61,26 @@ class QLearningAgent:
             done = False
             
             while not done:
-                action = agent.select_action(state)
+                action = self.select_action(state)
                 next_state, reward, done, info = env.step(action)
                 
-                agent.update(state, action, reward, next_state)
+                self.update(state, action, reward, next_state)
                 
                 state = next_state
                 total_reward += reward
             
-            if agent.epsilon > agent.epsilon_min:
-                agent.epsilon *= agent.epsilon_decay
+            if self.epsilon > self.epsilon_min:
+                self.epsilon *= self.epsilon_decay
                 
             wandb.log({
                 "episode": ep,
                 "total_reward": total_reward,
-                "epsilon": agent.epsilon,
-                "q_table_size": len(agent.q_table)
+                "epsilon": self.epsilon,
+                "q_table_size": len(self.q_table)
             })
             
             if ep % 100 == 0:
-                print(f"Episode {ep}: Reward = {total_reward}, Epsilon = {agent.epsilon:.2f}")
+                print(f"Episode {ep}: Reward = {total_reward}, Epsilon = {self.epsilon:.2f}")
 
         wandb.finish()
 
