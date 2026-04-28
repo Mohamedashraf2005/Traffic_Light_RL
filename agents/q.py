@@ -1,49 +1,37 @@
 import numpy as np
 import wandb
 import random
-from baselines import DiscretizedWrapper, evaluate, FixedTimerAgent
+from baselines import DiscretizedWrapper, evaluate
 from env.traffic_light_env import TrafficLightEnv
 
 class QLearningAgent:
-    def __init__(self, action_size, alpha=0.1, gamma=0.99,
+    def __init__(self, action_size, alpha=0.1, gamma=0.99, 
                  epsilon=1.0, epsilon_min=0.05, epsilon_decay=0.995):
-
         self.action_size = action_size
         self.alpha = alpha
         self.gamma = gamma
-
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
-
-        # Q-table: dict of {state_tuple: np.array(actions)}
         self.q_table = {}
 
-
     def get_qs(self, state_key):
-            """Return Q-values for a state, create if missing"""
-            if state_key not in self.q_table:
-                self.q_table[state_key] = np.zeros(self.action_size)
-            return self.q_table[state_key]
-
+        """Return Q-values for a state, create if missing"""
+        if state_key not in self.q_table:
+            self.q_table[state_key] = np.zeros(self.action_size)
+        return self.q_table[state_key]
 
     def select_action(self, state):
         state_key = tuple(state)
-
-        # Ensure state exists in Q-table
         q_values = self.get_qs(state_key)
-
-        # epsilon-greedy
+        
         if random.random() < self.epsilon:
             return random.randint(0, self.action_size - 1)
-
         return int(np.argmax(q_values))   
-
 
     def update(self, state, action, reward, next_state):
         state_key = tuple(state)
         next_state_key = tuple(next_state)
-
 
         q_current = self.get_qs(state_key)
         q_next = self.get_qs(next_state_key)
@@ -84,27 +72,20 @@ class QLearningAgent:
 
         wandb.finish()
 
-
-
-
 if __name__ == "__main__":
-
     env = DiscretizedWrapper(TrafficLightEnv())
 
-    action_size = 4  # 0:right, 1:down, 2:left, 3:up
-
     agent = QLearningAgent(
-        action_size=action_size,
-        alpha=0.1,
-        gamma=0.99,
+        action_size=4,
+        alpha=0.01,         
+        gamma=0.95,      
         epsilon=1.0,
-        epsilon_min=0.05,
-        epsilon_decay=0.995
+        epsilon_decay=0.999
     )
 
-    agent.train_agent(env, episodes=3000)
+    agent.train_agent(env, episodes=5000)
 
-    # Final evaluation
+    print("\n--- Training Finished ---")
     avg_reward = evaluate(agent, env)
-    print("Final Average Reward:", avg_reward)
+    print(f"Final Average Reward: {avg_reward}")
 
