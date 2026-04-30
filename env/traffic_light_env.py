@@ -60,7 +60,7 @@ class TrafficLightEnv:
     def __init__(
         self,
         max_steps: int = 200,
-        arrival_lambda: float = 1.5,
+        arrival_lambda: float = 0.8,
         switching_penalty: float = 5.0,
         yellow_penalty: float = 1.0,
         max_cars_per_lane: int = 50,
@@ -227,7 +227,7 @@ class TrafficLightEnv:
             + float(yellow_cost)
         )
 
-        reward = np.clip(reward, -10, 10)
+        reward = np.clip(reward, -50, 50)
 
         # delta_waiting = total_waiting - prev_total_waiting  # prev_total_waiting احفظه في self
 
@@ -314,13 +314,24 @@ class TrafficLightEnv:
         Order: right_l0, right_l1, right_l2, down_l0 ... up_l2
         Matches vehicles[direction][lane] structure in simulation.py.
         """
-        raw = [self.cars[d][l] for d in range(4) for l in range(NUM_LANES)]
-        return np.array(raw, dtype=np.float32) / self.max_cars_per_lane  # normalize to [0, 1]
+        # 12 queue counts (normalized)
+        queue = [self.cars[d][l] for d in range(4) for l in range(NUM_LANES)]
+        queue_norm = np.array(queue, dtype=np.float32) / self.max_cars_per_lane
+
+        # one-hot of current green [4 values]
+        one_hot = np.zeros(4, dtype=np.float32)
+        one_hot[self.current_green] = 1.0
+
+        # time progress [1 value] — how far into the episode we are
+        time_progress = np.array([self.current_step / self.max_steps], dtype=np.float32)
+
+        return np.concatenate([queue_norm, one_hot, time_progress])
 
     @property
     def state_size(self) -> int:
         """12 = 4 directions × 3 lanes."""
-        return 4 * NUM_LANES
+        """17 = 12 queue counts + 4 one-hot current green + 1 time progress."""
+        return 4 * NUM_LANES + 4 + 1
 
     @property
     def action_size(self) -> int:

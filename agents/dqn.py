@@ -4,7 +4,9 @@ from collections import deque
 import sys
 import os
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 
 from env.traffic_light_env import TrafficLightEnv
 import torch
@@ -43,7 +45,7 @@ class ReplayBuffer:
 # 2. DQN Network
 # =========================
 class DQNNetwork(nn.Module):
-    def __init__(self, state_size=12, action_size=4):
+    def __init__(self, state_size=17, action_size=4):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(state_size, 64),
@@ -62,7 +64,7 @@ class DQNNetwork(nn.Module):
 # =========================
 class DQNAgent:
     def __init__(self):
-        self.state_size = 12
+        self.state_size = 17   #17 = 12 queue counts + 4 one-hot current green + 1 time progress.
         self.action_size = 4
 
         self.gamma = 0.99
