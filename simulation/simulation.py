@@ -16,12 +16,20 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 # =====================
 WIDTH, HEIGHT = 1400, 800
 pygame.init()
-pygame.font.init()  # 🔠 تفعيل الخطوط للعداد
+pygame.font.init() 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("SIMULATION")
 
 clock = pygame.time.Clock()
 font = pygame.font.SysFont("consolas", 30, bold=False)
+
+# =====================
+# ANALYTICS VARIABLES
+# =====================
+throughput = 0
+total_wait_time = 0.0
+mock_q_value_confidence = 0.85 # Placeholder variable to plug your model into
+
 # =====================
 # LOAD & SCALE ASSETS
 # =====================
@@ -104,7 +112,7 @@ signals = [
 
 currentGreen = 0
 currentYellow = False
-time_left = 0  # متغير الثواني
+time_left = 0  # This variable will be updated by the signal thread and read by the timer display function
 
 def updateSignals():
     global currentGreen, currentYellow, time_left
@@ -120,8 +128,6 @@ def updateSignals():
             time.sleep(1)
 
         currentGreen = (currentGreen + 1) % 4
-
-threading.Thread(target=updateSignals, daemon=True).start()
 
 def get_time_left(idx):
     if idx == currentGreen:
@@ -147,6 +153,8 @@ class Vehicle:
         self.direction = direction
         self.direction_number = direction_number
         self.speed = speeds[vehicleClass]
+        
+        self.wait_time = 0.0 # <-- Tracks time spent waiting at a red light / in traffic
 
         self.x = x[direction][lane]
         self.y = y[direction][lane]
@@ -188,20 +196,27 @@ class Vehicle:
         return True
 
     def move(self):
+        # Accumulate wait time if the car cannot move
         if not self.is_front_clear():
+            self.wait_time += 1 / 60.0
             return
 
         if not self.crossed:
             if self.direction_number != currentGreen or currentYellow:
                 if self.direction == 'right' and self.x + self.image.get_width() >= stopLines['right']:
+                    self.wait_time += 1 / 60.0
                     return
                 if self.direction == 'left' and self.x <= stopLines['left']:
+                    self.wait_time += 1 / 60.0
                     return
                 if self.direction == 'down' and self.y + self.image.get_height() >= stopLines['down']:
+                    self.wait_time += 1 / 60.0
                     return
                 if self.direction == 'up' and self.y <= stopLines['up']:
+                    self.wait_time += 1 / 60.0
                     return
 
+        # Regular movement
         if self.direction == 'right':
             if self.x > stopLines['right']:
                 self.crossed = True
@@ -229,19 +244,90 @@ pygame.time.set_timer(SPAWN_VEHICLE_EVENT, 1200)
 # SIGNAL & TIMER POSITIONS 
 # =====================
 signalCoods = [
-    (488, 102),   # إشارة فوق شمال
-    (873, 100),   # إشارة فوق يمين
-    (877, 528),   # إشارة تحت يمين
-    (480, 528)    # إشارة تحت شمال
+    (488, 102),   # Signal above left
+    (873, 100),   # Signal above right
+    (877, 528),   # Signal below right
+    (480, 528)    # Signal below left
 ]
 
-# إحداثيات العدادات متظبطة عشان تبقى جمب إحداثياتك بالظبط
-timerCoods = [
-    (443, 109),   # عداد فوق شمال
-    (903, 107),   # عداد فوق يمين
-    (907, 535),   # عداد تحت يمين
-    (435, 535)    # عداد تحت شمال  # عداد تحت شمال
-]
+# =====================
+# UI DASHBOARD RENDERER
+# =====================
+def draw_analytics_dashboard(surface):
+    global mock_q_value_confidence
+    # Fluctuate the mock confidence slightly for visual effect
+    mock_q_value_confidence = max(0.0, min(1.0, mock_q_value_confidence + random.uniform(-0.01, 0.01)))
+
+    dash_x, dash_y = 20, 20
+    dash_w, dash_h = 280, 310
+
+    # Background overlay with rounded corners
+    rounded_overlay = pygame.Surface((dash_w, dash_h), pygame.SRCALPHA)
+    pygame.draw.rect(rounded_overlay, (20, 22, 28, 230), rounded_overlay.get_rect(), border_radius=12)
+    pygame.draw.rect(rounded_overlay, (80, 85, 100, 255), rounded_overlay.get_rect(), 2, border_radius=12)
+    surface.blit(rounded_overlay, (dash_x, dash_y))
+
+    font_title = pygame.font.SysFont("segoeui", 22, bold=True)
+    font_main = pygame.font.SysFont("segoeui", 16)
+    font_small = pygame.font.SysFont("segoeui", 14)
+
+    title = font_title.render("Live Analytics", True, (240, 240, 240))
+    surface.blit(title, (dash_x + 20, dash_y + 15))
+
+    # 1. Throughput
+    tp_text = font_main.render(f"Throughput: {throughput} vehicles", True, (200, 200, 200))
+    surface.blit(tp_text, (dash_x + 20, dash_y + 55))
+
+    # 2. Avg Wait Time
+    awt = (total_wait_time / throughput) if throughput > 0 else 0.0
+    awt_text = font_main.render(f"Avg Wait Time: {awt:.1f} s", True, (200, 200, 200))
+    surface.blit(awt_text, (dash_x + 20, dash_y + 85))
+
+    # 3. Queue Lengths
+    q_title = font_main.render("Queue Lengths:", True, (200, 200, 200))
+    surface.blit(q_title, (dash_x + 20, dash_y + 125))
+    
+    dirs = ['up', 'right', 'down', 'left']
+    max_bar_width = 100
+    
+    for i, d in enumerate(dirs):
+        q_len = sum(1 for v in vehicles[d] if not v.crossed)
+        
+        # Label
+        lbl = font_small.render(d.upper(), True, (150, 150, 150))
+        surface.blit(lbl, (dash_x + 20, dash_y + 155 + i * 22))
+        
+        # Bar background
+        bar_y = dash_y + 160 + i * 22
+        pygame.draw.rect(surface, (50, 50, 60), (dash_x + 80, bar_y, max_bar_width, 10), border_radius=3)
+        
+        # Active Bar
+        bar_w = min(q_len * 10, max_bar_width) 
+        if bar_w > 0:
+            # Color shifts dynamically to red as queue gets longer
+            r = min(255, 50 + (q_len * 20))
+            g = max(50, 200 - (q_len * 15))
+            bar_color = (r, g, 50)
+            pygame.draw.rect(surface, bar_color, (dash_x + 80, bar_y, bar_w, 10), border_radius=3)
+        
+        # Count Text
+        cnt = font_small.render(str(q_len), True, (240, 240, 240))
+        surface.blit(cnt, (dash_x + 190, dash_y + 155 + i * 22))
+
+    # 4. RL Confidence
+    conf_title = font_main.render("RL Q-Value Confidence:", True, (200, 200, 200))
+    surface.blit(conf_title, (dash_x + 20, dash_y + 255))
+    
+    # Confidence Bar
+    bar_y = dash_y + 280
+    pygame.draw.rect(surface, (50, 50, 60), (dash_x + 20, bar_y, 240, 14), border_radius=4)
+    conf_w = int(240 * mock_q_value_confidence)
+    pygame.draw.rect(surface, (0, 180, 120), (dash_x + 20, bar_y, conf_w, 14), border_radius=4)
+    
+    # Percentage inside/next to bar
+    conf_pct = font_small.render(f"{int(mock_q_value_confidence*100)}%", True, (255, 255, 255))
+    pct_rect = conf_pct.get_rect(center=(dash_x + 140, bar_y + 7))
+    surface.blit(conf_pct, pct_rect)
 
 # =====================
 # MAIN LOOP
@@ -254,7 +340,7 @@ while True:
             
         if event.type == pygame.MOUSEBUTTONDOWN:
             mouse_x, mouse_y = pygame.mouse.get_pos()
-            print(f"📍 إحداثيات الضغطة: ({mouse_x}, {mouse_y})")
+            print(f"📍Press cordinates: ({mouse_x}, {mouse_y})")
 
         if event.type == SPAWN_VEHICLE_EVENT:
             vtype = random.choice(vehicleTypes)
@@ -276,7 +362,7 @@ while True:
     bg_rect = background.get_rect(center=(WIDTH//2, HEIGHT//2))
     screen.blit(background, bg_rect)
 
-    # 🚦 رسم الإشارات والعدادات
+    # Render signals and timers
     for i in range(4):
         if i == currentGreen:
             if currentYellow:
@@ -289,23 +375,22 @@ while True:
             screen.blit(redSignal, signalCoods[i])
             text_color = (255, 0, 0)
 
-        # رسم العداد
-        timer_rect = pygame.Rect(timerCoods[i][0], timerCoods[i][1], 40, 50)
-        pygame.draw.rect(screen, (20, 20, 20), timer_rect) 
-        pygame.draw.rect(screen, (100, 100, 100), timer_rect, 2) 
-        
-        current_timer_val = get_time_left(i)
-        timer_text = font.render(str(current_timer_val), True, text_color)
-        text_rect = timer_text.get_rect(center=timer_rect.center)
-        screen.blit(timer_text, text_rect)
+    
+       
 
     for direction in vehicles:
         for vehicle in vehicles[direction][:]:
             screen.blit(vehicle.image, (vehicle.x, vehicle.y))
             vehicle.move()
             
+            # --- Update Throughput and Wait Time on Exit ---
             if vehicle.x > WIDTH + 200 or vehicle.x < -200 or vehicle.y > HEIGHT + 200 or vehicle.y < -200:
+                throughput += 1
+                # total_wait_time += vehicle.wait_time
                 vehicles[direction].remove(vehicle)
+
+
+    draw_analytics_dashboard(screen)
 
     pygame.display.update()
     clock.tick(60)
