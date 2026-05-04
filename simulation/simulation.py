@@ -5,52 +5,57 @@ import random
 import time
 import threading
 
-# =====================
 # PATHS
-# =====================
 BASE_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 
-# =====================
 # SCREEN & CLOCK
-# =====================
 WIDTH, HEIGHT = 1400, 800
-pygame.init()
-pygame.font.init() 
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("SIMULATION")
 
-clock = pygame.time.Clock()
-font = pygame.font.SysFont("consolas", 30, bold=False)
+# screen and clock are passed in from main.py
 
-# =====================
+
 # ANALYTICS VARIABLES
-# =====================
 throughput = 0
 total_wait_time = 0.0
 mock_q_value_confidence = 0.85 # Placeholder variable to plug your model into
 
-# =====================
+
 # LOAD & SCALE ASSETS
-# =====================
-background = pygame.image.load(
-    os.path.join(PROJECT_ROOT, "images", "intersection.png")
-).convert()
+SIGNAL_SIZE = (25, 65)
 
-SIGNAL_SIZE = (25, 65) 
+# These are loaded later by init() after pygame.display is ready
+background = None
+redSignal = None
+yellowSignal = None
+greenSignal = None
 
-redSignal = pygame.image.load(os.path.join(PROJECT_ROOT, "images", "signals", "red.png")).convert_alpha()
-redSignal = pygame.transform.smoothscale(redSignal, SIGNAL_SIZE)
+def init():
+    """Call from main.py AFTER pygame.display.set_mode() to load all assets."""
+    global background, redSignal, yellowSignal, greenSignal
 
-yellowSignal = pygame.image.load(os.path.join(PROJECT_ROOT, "images", "signals", "yellow.png")).convert_alpha()
-yellowSignal = pygame.transform.smoothscale(yellowSignal, SIGNAL_SIZE)
+    background = pygame.image.load(
+        os.path.join(PROJECT_ROOT, "images", "intersection.png")
+    ).convert()
 
-greenSignal = pygame.image.load(os.path.join(PROJECT_ROOT, "images", "signals", "green.png")).convert_alpha()
-greenSignal = pygame.transform.smoothscale(greenSignal, SIGNAL_SIZE)
+    redSignal = pygame.image.load(
+        os.path.join(PROJECT_ROOT, "images", "signals", "red.png")
+    ).convert_alpha()
+    redSignal = pygame.transform.smoothscale(redSignal, SIGNAL_SIZE)
 
-# =====================
+    yellowSignal = pygame.image.load(
+        os.path.join(PROJECT_ROOT, "images", "signals", "yellow.png")
+    ).convert_alpha()
+    yellowSignal = pygame.transform.smoothscale(yellowSignal, SIGNAL_SIZE)
+
+    greenSignal = pygame.image.load(
+        os.path.join(PROJECT_ROOT, "images", "signals", "green.png")
+    ).convert_alpha()
+    greenSignal = pygame.transform.smoothscale(greenSignal, SIGNAL_SIZE)
+
+    pygame.time.set_timer(SPAWN_VEHICLE_EVENT, 1200)
+
 # VEHICLE CONFIG
-# =====================
 speeds = {
     'car': 4.6,
     'taxi': 4.8,
@@ -95,9 +100,8 @@ stopLines = {
 
 vehicles = {'right': [], 'down': [], 'left': [], 'up': []}
 
-# =====================
+
 # SIGNAL SYSTEM & TIMERS
-# =====================
 class TrafficSignal:
     def __init__(self, green, yellow):
         self.green = green
@@ -143,9 +147,8 @@ def get_time_left(idx):
         wait_time = current_phase_remaining + (diff - 1) * full_phase
         return wait_time
 
-# =====================
+
 # VEHICLE CLASS
-# =====================
 class Vehicle:
     def __init__(self, lane, vehicleClass, direction_number, direction):
         self.lane = lane
@@ -234,15 +237,11 @@ class Vehicle:
                 self.crossed = True
             self.y -= self.speed
 
-# =====================
-# GENERATE VEHICLES EVENT
-# =====================
-SPAWN_VEHICLE_EVENT = pygame.USEREVENT + 1
-pygame.time.set_timer(SPAWN_VEHICLE_EVENT, 1200) 
 
-# =====================
+# GENERATE VEHICLES EVENT
+SPAWN_VEHICLE_EVENT = pygame.USEREVENT + 1
+
 # SIGNAL & TIMER POSITIONS 
-# =====================
 signalCoods = [
     (488, 102),   # Signal above left
     (873, 100),   # Signal above right
@@ -250,9 +249,8 @@ signalCoods = [
     (480, 528)    # Signal below left
 ]
 
-# =====================
+
 # UI DASHBOARD RENDERER
-# =====================
 def draw_analytics_dashboard(surface):
     global mock_q_value_confidence
     # Fluctuate the mock confidence slightly for visual effect
@@ -329,68 +327,68 @@ def draw_analytics_dashboard(surface):
     pct_rect = conf_pct.get_rect(center=(dash_x + 140, bar_y + 7))
     surface.blit(conf_pct, pct_rect)
 
-# =====================
-# MAIN LOOP
-# =====================
-while True:
-    for event in pygame.event.get():
-        if event.type == pygame.QUIT:
-            pygame.quit()
-            sys.exit()
-            
-        if event.type == pygame.MOUSEBUTTONDOWN:
-            mouse_x, mouse_y = pygame.mouse.get_pos()
-            print(f"📍Press cordinates: ({mouse_x}, {mouse_y})")
+def start_simulation():
+    """Call this once from main.py to kick off the signal thread."""
+    signal_thread = threading.Thread(target=updateSignals, daemon=True)
+    signal_thread.start()
 
-        if event.type == SPAWN_VEHICLE_EVENT:
-            vtype = random.choice(vehicleTypes)
-            lane = random.randint(0, 1)
-            direction_number = random.randint(0, 3)
-            direction_str = directionNumbers[direction_number]
-            
-            safe_to_spawn = True
-            for v in vehicles[direction_str]:
-                if v.lane == lane:
-                    if direction_str == 'right' and v.x < 180: safe_to_spawn = False
-                    elif direction_str == 'left' and v.x > WIDTH - 180: safe_to_spawn = False
-                    elif direction_str == 'down' and v.y < 180: safe_to_spawn = False
-                    elif direction_str == 'up' and v.y > HEIGHT - 180: safe_to_spawn = False
-            
-            if safe_to_spawn:
-                Vehicle(lane, vtype, direction_number, direction_str)
 
-    bg_rect = background.get_rect(center=(WIDTH//2, HEIGHT//2))
+# CALLABLE RENDER FUNCTIONS
+def handle_spawn_event():
+    """Called by main.py when SPAWN_VEHICLE_EVENT fires."""
+    vtype = random.choice(vehicleTypes)
+    lane = random.randint(0, 1)
+    direction_number = random.randint(0, 3)
+    direction_str = directionNumbers[direction_number]
+
+    safe_to_spawn = True
+    for v in vehicles[direction_str]:
+        if v.lane == lane:
+            if direction_str == 'right' and v.x < 180: safe_to_spawn = False
+            elif direction_str == 'left' and v.x > WIDTH - 180: safe_to_spawn = False
+            elif direction_str == 'down' and v.y < 180: safe_to_spawn = False
+            elif direction_str == 'up' and v.y > HEIGHT - 180: safe_to_spawn = False
+
+    if safe_to_spawn:
+        Vehicle(lane, vtype, direction_number, direction_str)
+
+
+def render_frame(screen, moving=True):
+    """
+    Called every frame by main.py.
+    moving=False → draw background + frozen cars (used during MENU state)
+    moving=True  → full simulation with car movement (used during RUNNING state)
+    """
+    global throughput, total_wait_time
+
+    # 1. Draw background
+    bg_rect = background.get_rect(center=(WIDTH // 2, HEIGHT // 2))
     screen.blit(background, bg_rect)
 
-    # Render signals and timers
+    # 2. Draw signals
     for i in range(4):
         if i == currentGreen:
             if currentYellow:
                 screen.blit(yellowSignal, signalCoods[i])
-                text_color = (255, 255, 0)
             else:
                 screen.blit(greenSignal, signalCoods[i])
-                text_color = (0, 255, 0)
         else:
             screen.blit(redSignal, signalCoods[i])
-            text_color = (255, 0, 0)
 
-    
-       
-
+    # 3. Draw and optionally move vehicles
     for direction in vehicles:
         for vehicle in vehicles[direction][:]:
             screen.blit(vehicle.image, (vehicle.x, vehicle.y))
-            vehicle.move()
-            
-            # --- Update Throughput and Wait Time on Exit ---
-            if vehicle.x > WIDTH + 200 or vehicle.x < -200 or vehicle.y > HEIGHT + 200 or vehicle.y < -200:
-                throughput += 1
-                # total_wait_time += vehicle.wait_time
-                vehicles[direction].remove(vehicle)
 
+            if moving:
+                vehicle.move()
 
+                # Remove vehicles that have exited the screen
+                if (vehicle.x > WIDTH + 200 or vehicle.x < -200 or
+                        vehicle.y > HEIGHT + 200 or vehicle.y < -200):
+                    throughput += 1
+                    total_wait_time += vehicle.wait_time
+                    vehicles[direction].remove(vehicle)
+
+    # 4. Draw analytics dashboard
     draw_analytics_dashboard(screen)
-
-    pygame.display.update()
-    clock.tick(60)
