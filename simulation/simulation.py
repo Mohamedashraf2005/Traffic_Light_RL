@@ -4,6 +4,7 @@ import os
 import random
 import time
 import threading
+import numpy as np
 
 # PATHS
 BASE_DIR = os.path.dirname(__file__)
@@ -248,6 +249,64 @@ signalCoods = [
     (877, 528),   # Signal below right
     (480, 528)    # Signal below left
 ]
+
+# The get_current_state function compiles the current state of the environment into a 17-dimensional vector for the RL agent.
+def get_current_state():
+    directions = ['up', 'right', 'down', 'left']
+
+    # 1. Queue lengths (4)
+    queue = np.array([
+        sum(1 for v in vehicles[d] if not v.crossed)
+        for d in directions
+    ], dtype=np.float32)
+
+    # 2. One-hot current green (4)
+    green_onehot = np.zeros(4, dtype=np.float32)
+    green_onehot[currentGreen] = 1.0
+
+    # 3. Time features (4)
+    time_features = np.array([
+        get_time_left(i) / 50.0  # normalization
+        for i in range(4)
+    ], dtype=np.float32)
+
+    # 4. Waiting pressure (4)
+    wait_pressure = np.array([
+        np.mean([v.wait_time for v in vehicles[d]]) 
+        if len(vehicles[d]) > 0 else 0.0
+        for d in directions
+    ], dtype=np.float32)
+
+    # FINAL 17-D VECTOR
+    state = np.concatenate([
+        queue,          # 4
+        green_onehot,   # 4
+        time_features,  # 4
+        wait_pressure   # 4
+    ])
+
+    return state
+
+# ACTION INTERFACE
+def apply_action(action):
+    """
+    action: 0 -> up, 1 -> right, 2 -> down, 3 -> left
+    forces traffic light switch safely
+    """
+
+    global currentGreen, currentYellow
+
+    # start yellow phase first (safe transition)
+    if currentGreen != action:
+        currentYellow = True
+        return False  # still in transition
+
+    # switch to green
+    currentGreen = action
+    currentYellow = False
+
+    return True
+
 
 # UI DASHBOARD RENDERER
 def draw_analytics_dashboard(surface):
