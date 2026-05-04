@@ -2,7 +2,10 @@ import sys, os
 sys.path.append(os.path.join(os.path.dirname(__file__), "simulation"))
 import simulation
 import pygame
-
+import torch
+import pickle
+import numpy as np
+from simulation import get_current_state, apply_action
 
 pygame.init()
 pygame.font.init()
@@ -23,6 +26,27 @@ btn_w, btn_h = 260, 70
 qlearning_btn = pygame.Rect(simulation.WIDTH//2 - btn_w - 30, simulation.HEIGHT//2 - btn_h//2, btn_w, btn_h)
 dqn_btn       = pygame.Rect(simulation.WIDTH//2 + 30,         simulation.HEIGHT//2 - btn_h//2, btn_w, btn_h)
 
+
+
+MODEL_PATHS = {
+    "Q-Learning": "checkpoints/final_model.pkl",
+    "DQN": "checkpoints/trained_dqn_model.pth"
+}
+
+q_agent = None
+dqn_model = None
+
+
+def load_models():
+    global q_agent, dqn_model
+
+    # ===== Q-LEARNING =====
+    with open(MODEL_PATHS["Q-Learning"], "rb") as f:
+        q_agent = pickle.load(f)
+
+    # ===== DQN =====
+    dqn_model = torch.load(MODEL_PATHS["DQN"], map_location="cpu")
+    dqn_model.eval()
 def draw_menu_overlay(surface):
     # Dark semi-transparent overlay
     overlay = pygame.Surface((simulation.WIDTH, simulation.HEIGHT), pygame.SRCALPHA)
@@ -76,7 +100,48 @@ while True:
         draw_menu_overlay(screen)                       # overlay + buttons
 
     elif app_state == "RUNNING":
-        simulation.render_frame(screen, moving=True)   # full live simulation
+    
+    # =========================
+    # 0. LOAD MODELS ON FIRST RUN
+    # =========================
+        if q_agent is None and dqn_model is None:
+            load_models()
+            print("✅ Models loaded")
 
-    pygame.display.flip()
-    clock.tick(60)
+        # =========================
+        # 1.  GET STATE
+        # =========================
+        state = get_current_state()
+
+        # =========================
+        # 2. GET ACTION
+        # =========================
+        if algorithm == "Q-Learning":
+
+            state_key = tuple(state)
+            q_values = q_agent.get(state_key, np.zeros(4))
+            action = int(np.argmax(q_values))
+
+        elif algorithm == "DQN":
+
+            state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
+
+            with torch.no_grad():
+                q_values = dqn_model(state_tensor)
+                action = int(torch.argmax(q_values).item())
+
+        else:
+            action = 0  # fallback
+
+        # =========================
+        # 3.  APPLY ACTION
+        # =========================
+        apply_action(action)
+
+        # =========================
+        # 4.  RENDER FRAME
+        # =========================
+        simulation.render_frame(screen, moving=True)
+
+        pygame.display.flip()
+        clock.tick(60)
