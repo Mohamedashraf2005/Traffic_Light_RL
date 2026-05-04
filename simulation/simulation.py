@@ -4,7 +4,7 @@ import os
 import random
 import time
 import threading
-import numpy as np
+
 # PATHS
 BASE_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
@@ -249,43 +249,6 @@ signalCoods = [
     (480, 528)    # Signal below left
 ]
 
-# OBSERVATION FUNCTION - RETURNS 17-D VECTOR REPRESENTING CURRENT STATE
-def get_current_state():
-    directions = ['up', 'right', 'down', 'left']
-
-    # 1. Queue lengths (4)
-    queue = np.array([
-        sum(1 for v in vehicles[d] if not v.crossed)
-        for d in directions
-    ], dtype=np.float32)
-
-    # 2. One-hot current green (4)
-    green_onehot = np.zeros(4, dtype=np.float32)
-    green_onehot[currentGreen] = 1.0
-
-    # 3. Time features (4)
-    time_features = np.array([
-        get_time_left(i) / 50.0  # normalization
-        for i in range(4)
-    ], dtype=np.float32)
-
-    # 4. Waiting pressure (4)
-    wait_pressure = np.array([
-        np.mean([v.wait_time for v in vehicles[d]]) 
-        if len(vehicles[d]) > 0 else 0.0
-        for d in directions
-    ], dtype=np.float32)
-
-    # FINAL 17-D VECTOR
-    state = np.concatenate([
-        queue,          # 4
-        green_onehot,   # 4
-        time_features,  # 4
-        wait_pressure   # 4
-    ])
-
-    return state
-
 # UI DASHBOARD RENDERER
 def draw_analytics_dashboard(surface):
     global mock_q_value_confidence
@@ -387,6 +350,8 @@ def handle_spawn_event():
 
     if safe_to_spawn:
         Vehicle(lane, vtype, direction_number, direction_str)
+
+
 
 
 def render_frame(screen, moving=True):
