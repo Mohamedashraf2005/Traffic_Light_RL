@@ -49,9 +49,6 @@ class QLearningAgent:
             reward + self.gamma * next_max - q_current[action]
         )
 
-    # =========================
-    # 💾 SAVE / LOAD
-    # =========================
     def save(self, filepath="q_learning_model.pkl"):
         data = {
             "q_table": self.q_table,
@@ -61,7 +58,7 @@ class QLearningAgent:
         }
         with open(filepath, "wb") as f:
             pickle.dump(data, f)
-        print(f"✅ Model saved to {filepath}")
+        print(f"Model saved to {filepath}")
 
     def load(self, filepath="q_learning_model.pkl"):
         if os.path.exists(filepath):
@@ -71,13 +68,11 @@ class QLearningAgent:
                 self.epsilon = data["epsilon"]
                 self.alpha = data["alpha"]
                 self.gamma = data["gamma"]
-            print(f"✅ Model loaded from {filepath}")
+            print(f"Model loaded from {filepath}")
         else:
-            print("❌ No saved model found.")
+            print("No saved model found.")
 
-    # =========================
-    # 🚀 TRAINING
-    # =========================
+
     def train_agent(self, env, episodes=3000, save_path="best_model.pkl"):
         
         wandb.init(project="traffic-light-qlearning", name="q-learning-run")
@@ -96,16 +91,13 @@ class QLearningAgent:
                 state = next_state
                 total_reward += reward
 
-            # Epsilon decay
             if self.epsilon > self.epsilon_min:
                 self.epsilon *= self.epsilon_decay
 
-            # Save best model
             if total_reward > self.best_reward:
                 self.best_reward = total_reward
                 self.save(save_path)
 
-            # Logging
             wandb.log({
                 "episode": ep,
                 "total_reward": total_reward,
@@ -119,9 +111,6 @@ class QLearningAgent:
         wandb.finish()
 
 
-# =========================
-# 🧠 MAIN
-# =========================
 if __name__ == "__main__":
     
     env = DiscretizedWrapper(TrafficLightEnv())
@@ -134,14 +123,9 @@ if __name__ == "__main__":
         epsilon_decay=0.999
     )
 
-
     agent.train_agent(env, episodes=5000)
 
-    # حفظ آخر موديل
     agent.save("final_model.pkl")
 
     print("\n--- Training Finished ---")
 
-    agent.epsilon = 0  
-    avg_reward = evaluate(agent, env)
-    print(f"Final Average Reward: {avg_reward}")
