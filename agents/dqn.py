@@ -164,24 +164,27 @@ class DQNAgent:
     # =========================
     # 4. Save Model
     # =========================
-    def save_model(self, path="checkpoints/trained_dqn_model.pth"):
-        # Create models folder if not exists
+    def save_model(self, path="checkpoints/trained_dqn_model.pkl"):
         os.makedirs(os.path.dirname(path), exist_ok=True)
 
-        torch.save({
+        checkpoint = {
             'policy_net_state_dict': self.policy_net.state_dict(),
             'target_net_state_dict': self.target_net.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'epsilon': self.epsilon
-        }, path)
+        }
+
+        with open(path, "wb") as f:
+            pickle.dump(checkpoint, f)
 
         print(f"Model saved successfully at: {path}")
 
     # =========================
     # 5. Load Model
     # =========================
-    def load_model(self, path="checkpoints/trained_dqn_model.pth"):
-        checkpoint = torch.load(path, map_location=self.device)
+    def load_model(self, path="checkpoints/trained_dqn_model.pkl"):
+        with open(path, "rb") as f:
+            checkpoint = pickle.load(f)
 
         self.policy_net.load_state_dict(checkpoint['policy_net_state_dict'])
         self.target_net.load_state_dict(checkpoint['target_net_state_dict'])
@@ -302,8 +305,7 @@ if __name__ == "__main__":
     # -------------------------
     # Save Trained Model
     # -------------------------
-    trained_agent.save_model("checkpoints/trained_dqn_model.pth")
-
+    trained_agent.save_model("checkpoints/trained_dqn_model.pkl")
     # -------------------------
     # Evaluate Agent
     # -------------------------
