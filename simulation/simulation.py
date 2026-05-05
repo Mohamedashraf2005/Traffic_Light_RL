@@ -20,6 +20,7 @@ WIDTH, HEIGHT = 1400, 800
 throughput = 0
 total_wait_time = 0.0
 mock_q_value_confidence = 0.85 # Placeholder variable to plug your model into
+active_algorithm = "None"
 
 
 # LOAD & SCALE ASSETS
@@ -252,70 +253,62 @@ signalCoods = [
 
 # The get_current_state function compiles the current state of the environment into a 17-dimensional vector for the RL agent.
 def get_current_state():
-    directions = ['up', 'right', 'down', 'left']
+    # 1.match traffic_light_env.py (0:right, 1:down, 2:left, 3:up)
+    directions = ['right', 'down', 'left', 'up']
+    MAX_CARS_PER_LANE = 50.0
 
-    # 1. Queue lengths (4)
-    queue = np.array([
-        sum(1 for v in vehicles[d] if not v.crossed)
-        for d in directions
-    ], dtype=np.float32)
+    # 2. Queue Lengths (12 dimensions) - Reconstructing 3 lanes per direction
+    queue_norm = []
+    for d in directions:
+        # Count cars explicitly by their assigned Pygame lanes
+        lane0_count = sum(1 for v in vehicles[d] if not v.crossed and v.lane == 0)
+        lane1_count = sum(1 for v in vehicles[d] if not v.crossed and v.lane == 1)
+        lane2_count = sum((1 for v in vehicles[d] if ((not v.crossed) and (v.lane == 2))))
+        
+        # Normalize between 0.0 and 1.0 to prevent neural network blowout
+        queue_norm.extend([
+            min(lane0_count / MAX_CARS_PER_LANE, 1.0),
+            min(lane1_count / MAX_CARS_PER_LANE, 1.0),
+            min(lane2_count / MAX_CARS_PER_LANE, 1.0)
+        ])
 
-    # 2. One-hot current green (4)
+    # 3. One-hot current green (4 dimensions)
     green_onehot = np.zeros(4, dtype=np.float32)
     green_onehot[currentGreen] = 1.0
 
-    # 3. Time features (4)
-    time_features = np.array([
-        get_time_left(i) / 50.0  # normalization
-        for i in range(4)
-    ], dtype=np.float32)
+    # 4. Time progress (1 dimension)
+    # The training env uses current_step / max_steps. 
+    # Since the UI runs indefinitely, passing a static neutral value or mock progress is required.
+    time_progress = np.array([pygame.time.get_ticks() / 10000.0])
 
-    # 4. Waiting pressure (4)
-    wait_pressure = np.array([
-        np.mean([v.wait_time for v in vehicles[d]]) 
-        if len(vehicles[d]) > 0 else 0.0
-        for d in directions
-    ], dtype=np.float32)
-
-    # FINAL 17-D VECTOR
+    # FINAL 17-D VECTOR (12 + 4 + 1)
     state = np.concatenate([
-        queue,          # 4
-        green_onehot,   # 4
-        time_features,  # 4
-        wait_pressure   # 4
+        np.array(queue_norm, dtype=np.float32),
+        green_onehot,
+        time_progress
     ])
 
     return state
 
-# ACTION INTERFACE
-def apply_action(action):
-    """
-    action: 0 -> up, 1 -> right, 2 -> down, 3 -> left
-    forces traffic light switch safely
-    """
 
+def apply_action(action):
     global currentGreen, currentYellow
 
-    # start yellow phase first (safe transition)
     if currentGreen != action:
         currentYellow = True
-        return False  # still in transition
 
-    # switch to green
-    currentGreen = action
-    currentYellow = False
+        currentGreen = action
+
+        currentYellow = False
 
     return True
 
 
 # UI DASHBOARD RENDERER
 def draw_analytics_dashboard(surface):
-    global mock_q_value_confidence
-    # Fluctuate the mock confidence slightly for visual effect
-    mock_q_value_confidence = max(0.0, min(1.0, mock_q_value_confidence + random.uniform(-0.01, 0.01)))
-
     dash_x, dash_y = 20, 20
-    dash_w, dash_h = 280, 310
+    dash_h = 300  
+    dash_w = 280
 
     # Background overlay with rounded corners
     rounded_overlay = pygame.Surface((dash_w, dash_h), pygame.SRCALPHA)
@@ -325,42 +318,80 @@ def draw_analytics_dashboard(surface):
 
     font_title = pygame.font.SysFont("segoeui", 22, bold=True)
     font_main = pygame.font.SysFont("segoeui", 16)
+    font_bold = pygame.font.SysFont("segoeui", 16, bold=True)
     font_small = pygame.font.SysFont("segoeui", 14)
 
     title = font_title.render("Live Analytics", True, (240, 240, 240))
     surface.blit(title, (dash_x + 20, dash_y + 15))
 
-    # 1. Throughput
-    tp_text = font_main.render(f"Throughput: {throughput} vehicles", True, (200, 200, 200))
-    surface.blit(tp_text, (dash_x + 20, dash_y + 55))
+    current_y = dash_y + 55
+    spacing = 25
 
-    # 2. Avg Wait Time
-    awt = (total_wait_time / throughput) if throughput > 0 else 0.0
-    awt_text = font_main.render(f"Avg Wait Time: {awt:.1f} s", True, (200, 200, 200))
-    surface.blit(awt_text, (dash_x + 20, dash_y + 85))
-
-    # 3. Queue Lengths
-    q_title = font_main.render("Queue Lengths:", True, (200, 200, 200))
-    surface.blit(q_title, (dash_x + 20, dash_y + 125))
+    # 0: right (origin LEFT), 1: down (origin TOP), 2: left (origin RIGHT), 3: up (origin BOTTOM)
+    ui_phases = ['LEFT', 'UP', 'RIGHT', 'DOWN']
+    active_dir = ui_phases[currentGreen]
     
-    dirs = ['up', 'right', 'down', 'left']
+    if currentYellow:
+        phase_text = font_bold.render(f"PHASE: {active_dir} (YELLOW)", True, (255, 200, 50))
+    else:
+        phase_text = font_bold.render(f"PHASE: {active_dir} (GREEN)", True, (50, 255, 100))
+    surface.blit(phase_text, (dash_x + 20, current_y))
+    current_y += spacing
+
+    # 2. Simulation Time
+    elapsed_seconds = pygame.time.get_ticks() // 1000
+    mins, secs = divmod(elapsed_seconds, 60)
+    time_text = font_main.render(f"Simulation Time: {mins:02d}:{secs:02d}", True, (200, 200, 200))
+    surface.blit(time_text, (dash_x + 20, current_y))
+    current_y += spacing
+
+    # 3. Total Throughput
+    tp_text = font_main.render(f"Throughput: {throughput} vehicles", True, (200, 200, 200))
+    surface.blit(tp_text, (dash_x + 20, current_y))
+    current_y += spacing
+
+    # 4. Max Wait Time
+    max_wait = 0.0
+    for d in vehicles:
+        for v in vehicles[d]:
+            if not v.crossed and v.wait_time > max_wait:
+                max_wait = v.wait_time
+    
+    wait_color = (255, 100, 100) if max_wait > 30 else (200, 200, 200)
+    wait_text = font_main.render(f"Max Wait Time: {max_wait:.1f} s", True, wait_color)
+    surface.blit(wait_text, (dash_x + 20, current_y))
+    
+    current_y += spacing + 10 # Extra gap before queues
+
+    # 5. Queue Lengths
+    q_title = font_main.render("Queue Lengths:", True, (200, 200, 200))
+    surface.blit(q_title, (dash_x + 20, current_y))
+    current_y += 30
+    
+    # Map Visual Label to Internal Array Key
+    queue_mapping = [
+        ('UP', 'down'),     # Cars moving down originate at the top
+        ('DOWN', 'up'),    # Cars moving up originate at the bottom
+        ('LEFT', 'right'),   # Cars moving right originate at the left
+        ('RIGHT', 'left')    # Cars moving left originate at the right
+    ]
+    
     max_bar_width = 100
     
-    for i, d in enumerate(dirs):
-        q_len = sum(1 for v in vehicles[d] if not v.crossed)
+    for i, (ui_label, internal_dir) in enumerate(queue_mapping):
+        q_len = sum(1 for v in vehicles[internal_dir] if not v.crossed)
         
-        # Label
-        lbl = font_small.render(d.upper(), True, (150, 150, 150))
-        surface.blit(lbl, (dash_x + 20, dash_y + 155 + i * 22))
+        # Draw UI Label
+        lbl = font_small.render(ui_label, True, (150, 150, 150))
+        surface.blit(lbl, (dash_x + 20, current_y + i * 22))
         
         # Bar background
-        bar_y = dash_y + 160 + i * 22
+        bar_y = current_y + 5 + i * 22
         pygame.draw.rect(surface, (50, 50, 60), (dash_x + 80, bar_y, max_bar_width, 10), border_radius=3)
         
         # Active Bar
         bar_w = min(q_len * 10, max_bar_width) 
         if bar_w > 0:
-            # Color shifts dynamically to red as queue gets longer
             r = min(255, 50 + (q_len * 20))
             g = max(50, 200 - (q_len * 15))
             bar_color = (r, g, 50)
@@ -368,27 +399,13 @@ def draw_analytics_dashboard(surface):
         
         # Count Text
         cnt = font_small.render(str(q_len), True, (240, 240, 240))
-        surface.blit(cnt, (dash_x + 190, dash_y + 155 + i * 22))
-
-    # 4. RL Confidence
-    conf_title = font_main.render("RL Q-Value Confidence:", True, (200, 200, 200))
-    surface.blit(conf_title, (dash_x + 20, dash_y + 255))
-    
-    # Confidence Bar
-    bar_y = dash_y + 280
-    pygame.draw.rect(surface, (50, 50, 60), (dash_x + 20, bar_y, 240, 14), border_radius=4)
-    conf_w = int(240 * mock_q_value_confidence)
-    pygame.draw.rect(surface, (0, 180, 120), (dash_x + 20, bar_y, conf_w, 14), border_radius=4)
-    
-    # Percentage inside/next to bar
-    conf_pct = font_small.render(f"{int(mock_q_value_confidence*100)}%", True, (255, 255, 255))
-    pct_rect = conf_pct.get_rect(center=(dash_x + 140, bar_y + 7))
-    surface.blit(conf_pct, pct_rect)
+        surface.blit(cnt, (dash_x + 190, current_y + i * 22))
 
 def start_simulation():
     """Call this once from main.py to kick off the signal thread."""
-    signal_thread = threading.Thread(target=updateSignals, daemon=True)
-    signal_thread.start()
+    # signal_thread = threading.Thread(target=updateSignals, daemon=True)
+    # signal_thread.start()
+    pass
 
 
 # CALLABLE RENDER FUNCTIONS
@@ -409,7 +426,6 @@ def handle_spawn_event():
 
     if safe_to_spawn:
         Vehicle(lane, vtype, direction_number, direction_str)
-
 
 
 
@@ -450,5 +466,4 @@ def render_frame(screen, moving=True):
                     total_wait_time += vehicle.wait_time
                     vehicles[direction].remove(vehicle)
 
-    # 4. Draw analytics dashboard
     draw_analytics_dashboard(screen)
